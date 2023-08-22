@@ -5,8 +5,10 @@ test for noobs
 
 The instructions are on the Colab.
 
-Support Language
-LANGUAGES = 
+#Support Language
+
+#LANGUAGES = 
+
     "en": "english",
     "zh": "chinese",
     "de": "german",
@@ -108,7 +110,9 @@ LANGUAGES =
     "su": "sundanese",
 
 # language code lookup by name, with a few language aliases
+
 TO_LANGUAGE_CODE = 
+
     "burmese": "my",
     "valencian": "ca",
     "flemish": "nl",
