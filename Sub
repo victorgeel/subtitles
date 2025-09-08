@@ -1,0 +1,203 @@
+{
+ "nbformat": 4,
+ "nbformat_minor": 0,
+ "metadata": {
+  "colab": {
+   "provenance": [],
+   "gpuType": "T4",
+   "include_colab_link": true
+  },
+  "kernelspec": {
+   "name": "python3",
+   "display_name": "Python 3"
+  },
+  "language_info": {
+   "name": "python"
+  }
+ },
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "source": [
+    "# Subtitle Generator using OpenAI Whisper\n",
+    "\n",
+    "මෙම Notebook သည် video သို့မဟုတ် audio file များမှ စာတန်းထိုး (.srt) များကို အလိုအလျောက် ဖန်တီးပေးပါသည်။ \n",
+    "\n",
+    "**အရေးကြီး:** လုပ်ငန်းမစတင်မီ Google Colab ၏ Runtime ကို GPU သို့ပြောင်းရန် မမေ့ပါနှင့်။\n",
+    "*(Menu -> Runtime -> Change runtime type -> Hardware accelerator -> GPU -> Save)*"
+   ],
+   "metadata": {
+    "id": "intro_markdown"
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "colab_type": "code",
+    "id": "install_libraries"
+   },
+   "outputs": [],
+   "source": [
+    "#@title 1. Install Libraries\n",
+    "#@markdown Google Colab ရဲ့ Runtime ကို GPU သို့ပြောင်းပါ။\n",
+    "#@markdown (Runtime -> Change runtime type -> Hardware accelerator -> GPU)\n",
+    "\n",
+    "# GPU ချိတ်ဆက်ထားခြင်းရှိမရှိ စစ်ဆေးခြင်း\n",
+    "!nvidia-smi\n",
+    "\n",
+    "# Video/Audio file တွေအတွက် မရှိမဖြစ်လိုအပ်တဲ့ ffmpeg ကို install လုပ်ခြင်း\n",
+    "!apt update && apt install -y ffmpeg\n",
+    "\n",
+    "# OpenAI Whisper library ၏ နောက်ဆုံး version ကို install လုပ်ခြင်း\n",
+    "!pip install -U openai-whisper"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "source": [
+    "## 2. Mount Google Drive"
+   ],
+   "metadata": {
+    "id": "mount_drive_markdown"
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "colab_type": "code",
+    "id": "mount_google_drive",
+    "cellView": "form"
+   },
+   "outputs": [],
+   "source": [
+    "#@title Mount Google Drive\n",
+    "#@markdown Google Drive ကိုချိတ်ဆက်ပြီး အသုံးပြုခွင့် (permission) ပေးပါ။\n",
+    "\n",
+    "from google.colab import drive\n",
+    "drive.mount('/content/drive')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "source": [
+    "## 3. Transcribe and Generate Subtitles"
+   ],
+   "metadata": {
+    "id": "transcribe_markdown"
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "colab_type": "code",
+    "id": "transcribe_and_generate",
+    "cellView": "form"
+   },
+   "outputs": [],
+   "source": [
+    "#@title Transcribe and Generate Subtitles\n",
+    "\n",
+    "import os\n",
+    "import whisper\n",
+    "from datetime import timedelta\n",
+    "import subprocess\n",
+    "\n",
+    "#@markdown ### 📁 Input and Output Settings\n",
+    "#@markdown **Path_of_Video_or_Audio:** Drive ထဲက video/audio file ပေါ် right-click နှိပ်ပြီး \"Copy path\" ကိုရွေးကာ ဒီနေရာမှာ paste ချပါ။\n",
+    "Path_of_Video_or_Audio = \"/content/drive/MyDrive/video.mp4\" #@param {type:\"string\"}\n",
+    "#@markdown **Output_Directory:** စာတန်းထိုးဖိုင်များသိမ်းဆည်းမည့် Folder အမည်။ Colab ရဲ့ လက်ရှိ directory မှာ အလိုအလျောက် တည်ဆောက်ပါမည်။\n",
+    "Output_Directory = \"results\" #@param {type:\"string\"}\n",
+    "\n",
+    "#@markdown ---\n",
+    "#@markdown ### ⚙️ Transcription Settings\n",
+    "#@markdown **Model_Size:** Model အရွယ်အစားကြီးလေ ပိုတိကျလေ၊ အချိန်ပိုကြာလေ ဖြစ်ပါတယ်။ (e.g., 'small', 'medium', 'large-v2')\n",
+    "Model_Size = \"small\" #@param ['tiny', 'base', 'small', 'medium', 'large-v1', 'large-v2']\n",
+    "#@markdown **Language:** Video/Audio ရဲ့ မူရင်းဘာသာစကား code ကိုထည့်ပါ။ (e.g., `en` for English, `ja` for Japanese, `my` for Burmese)။ `None` ထားပါက အလိုအလျောက်စစ်ဆေးပါမည်။\n",
+    "Language = \"ja\" #@param {type:\"string\"}\n",
+    "#@markdown **Task:** `transcribe` (မူရင်းဘာသာဖြင့်စာอด), `translate` (အင်္ဂလိပ်ဘာသာသို့ပြန်ဆို)\n",
+    "Task = \"translate\" #@param [\"transcribe\", \"translate\"]\n",
+    "#@markdown **Subtitle_Action:**\n",
+    "#@markdown - `None`: .srt စာတန်းထိုးဖိုင်သာ ထုတ်ပေးမည်။\n",
+    "#@markdown - `burn`: စာတန်းထိုးကို video ပေါ်တွင် အသေကပ်ပြီး video file အသစ်ထုတ်ပေးမည် (Hardsub)။\n",
+    "#@markdown - `add`: စာတန်းထိုးကို video file ထဲသို့ track တစ်ခုအနေနဲ့ ထည့်ပေးမည် (Softsub)။\n",
+    "Subtitle_Action = \"None\" #@param [\"None\", \"add\", \"burn\"]\n",
+    "\n",
+    "# --- Main Logic ---\n",
+    "\n",
+    "# 1. Output directory ကို ဖန်တီးခြင်း\n",
+    "if not os.path.exists(Output_Directory):\n",
+    "    os.makedirs(Output_Directory)\n",
+    "\n",
+    "# 2. Whisper model ကို သတ်မှတ်ထားသောအရွယ်အစားဖြင့် load လုပ်ပါ\n",
+    "print(f\"Loading Whisper model: '{Model_Size}'...\")\n",
+    "model = whisper.load_model(Model_Size)\n",
+    "print(\"Model loaded successfully.\")\n",
+    "\n",
+    "# 3. Transcription ပြုလုပ်ခြင်း\n",
+    "print(f\"Starting {Task} for: {Path_of_Video_or_Audio}\")\n",
+    "result = model.transcribe(\n",
+    "    Path_of_Video_or_Audio,\n",
+    "    language=(Language if Language else None),\n",
+    "    task=Task,\n",
+    "    fp16=False # If you have a problem, change to False\n",
+    ")\n",
+    "print(\"Transcription completed.\")\n",
+    "\n",
+    "# 4. SRT file format ပြောင်းလဲပြီး သိမ်းဆည်းခြင်း\n",
+    "def format_timestamp(seconds):\n",
+    "    \"\"\"Seconds ကို SRT timestamp format (HH:MM:SS,ms) သို့ပြောင်းပေးသည်။\"\"\"\n",
+    "    delta = timedelta(seconds=seconds)\n",
+    "    hours, remainder = divmod(delta.seconds, 3600)\n",
+    "    minutes, seconds = divmod(remainder, 60)\n",
+    "    milliseconds = delta.microseconds // 1000\n",
+    "    return f\"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}\"\n",
+    "\n",
+    "base_filename = os.path.splitext(os.path.basename(Path_of_Video_or_Audio))[0]\n",
+    "srt_filename = os.path.join(Output_Directory, f\"{base_filename}.srt\")\n",
+    "\n",
+    "with open(srt_filename, \"w\", encoding=\"utf-8\") as srt_file:\n",
+    "    for i, segment in enumerate(result[\"segments\"]):\n",
+    "        start_time = format_timestamp(segment['start'])\n",
+    "        end_time = format_timestamp(segment['end'])\n",
+    "        text = segment['text'].strip()\n",
+    "        srt_file.write(f\"{i + 1}\\n\")\n",
+    "        srt_file.write(f\"{start_time} --> {end_time}\\n\")\n",
+    "        srt_file.write(f\"{text}\\n\\n\")\n",
+    "\n",
+    "print(f\"SRT file saved to: {srt_filename}\")\n",
+    "\n",
+    "# 5. Subtitle Action (burn or add)\n",
+    "if Subtitle_Action != \"None\":\n",
+    "    output_video_path = os.path.join(Output_Directory, f\"{base_filename}_{Subtitle_Action}.mp4\")\n",
+    "    print(f\"Performing '{Subtitle_Action}' action... Output will be saved to {output_video_path}\")\n",
+    "\n",
+    "    if Subtitle_Action == \"burn\":\n",
+    "        # Hardsub: စာတန်းထိုးကို video ပေါ်မှာ အသေကပ်ခြင်း\n",
+    "        command = [\n",
+    "            'ffmpeg', '-y', '-i', Path_of_Video_or_Audio, '-vf',\n",
+    "            f\"subtitles='{srt_filename}'\", '-c:a', 'copy',\n",
+    "            output_video_path\n",
+    "        ]\n",
+    "    elif Subtitle_Action == \"add\":\n",
+    "        # Softsub: စာတန်းထိုးကို track အနေနဲ့ ထည့်ခြင်း\n",
+    "        command = [\n",
+    "            'ffmpeg', '-y', '-i', Path_of_Video_or_Audio, '-i', srt_filename,\n",
+    "            '-c', 'copy', '-c:s', 'mov_text',\n",
+    "            '-metadata:s:s:0', 'language=eng', # Subtitle language code\n",
+    "            output_video_path\n",
+    "        ]\n",
+    "\n",
+    "    # Run the ffmpeg command\n",
+    "    try:\n",
+    "        process = subprocess.run(command, check=True, capture_output=True, text=True)\n",
+    "        print(f\"Successfully created subtitled video: {output_video_path}\")\n",
+    "    except subprocess.CalledProcessError as e:\n",
+    "        print(\"Error during ffmpeg processing:\")\n",
+    "        print(e.stderr)\n"
+   ]
+  }
+ ]
+}
